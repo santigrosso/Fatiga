@@ -1,1 +1,1568 @@
 
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Monitoreo de Fatiga – CAT (v1.6.7)</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+
+  <style>
+    :root{ --azul:#001A5A; --celeste:#7EC8E3; --gris:#F5F6FA; --borde:#E1E4EB; }
+    body{ background: var(--gris); color:#0f172a; }
+    .app-card{ background:#fff; border:1px solid var(--borde); border-radius:14px; box-shadow: 0 6px 18px rgba(0,0,0,.05); }
+    .accent{ color: var(--azul); }
+    .chip{ padding:2px 8px; border-radius:12px; font-size:12px; border:1px solid var(--borde); background:#fff; }
+    td,th{ white-space: nowrap; }
+    .logo{ width: 42px; height: 42px; object-fit: contain; }
+    .avatar{ width:64px; height:64px; border-radius:14px; object-fit:cover; border:1px solid var(--borde); background:#f1f5f9; }
+    .avatar-sm{ width:36px; height:36px; border-radius:10px; object-fit:cover; border:1px solid var(--borde); background:#f1f5f9; }
+    .chart-grid{
+      background:
+        repeating-linear-gradient(90deg, rgba(126,200,227,.18) 0 1px, transparent 1px 48px),
+        repeating-linear-gradient(0deg, rgba(126,200,227,.18) 0 1px, transparent 1px 48px);
+    }
+    .input{ width: 100%; border:1px solid var(--borde); border-radius:10px; padding:8px 10px; outline:none; }
+    .input:focus{ border-color: rgba(0,26,90,.35); box-shadow: 0 0 0 3px rgba(126,200,227,.25); }
+    .btn{ padding:10px 14px; border-radius:12px; border:1px solid var(--borde); background:#fff; color:#0f172a; }
+    .btn:hover{ background:#f8fafc; }
+    .btn-primary{ padding:10px 14px; border-radius:12px; background:var(--azul); color:#fff; border:1px solid var(--azul); }
+    .btn-primary:hover{ background:#02206f; }
+
+    .modal-backdrop{ position:fixed; inset:0; background:rgba(15,23,42,.55); display:flex; align-items:flex-start; justify-content:center; padding:24px; overflow:auto; z-index:50; }
+    .modal{ width:min(1100px, 96vw); }
+    .mini{ font-size:12px; color:#64748b; }
+    .list-dot{ list-style: disc; padding-left: 18px; }
+
+    .badge{
+      font-size:11px;
+      padding:2px 8px;
+      border-radius:999px;
+      border:1px solid var(--borde);
+      background:#fff;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      white-space:nowrap;
+    }
+    .badge-dot{ width:8px; height:8px; border-radius:999px; display:inline-block; }
+
+    /* PRINT */
+    #printRoot{ display:none; }
+    @media print{
+      *{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      body{ background:#fff !important; }
+      header, .no-print{ display:none !important; }
+      #printRoot{ display:block !important; }
+      .print-page{
+        width: 210mm;
+        min-height: 297mm;
+        padding: 10mm;
+        margin: 0 auto;
+        background:#fff;
+      }
+      .print-h2{ font-size: 16px; font-weight: 800; color: var(--azul); }
+      .print-sub{ font-size: 11px; color:#475569; }
+      .print-card{ border:1px solid var(--borde); border-radius: 12px; padding:10px; }
+      table{ page-break-inside:auto; }
+      tr{ page-break-inside:avoid; page-break-after:auto; }
+      .avoid-break{ break-inside: avoid; }
+      canvas{ max-width: 100% !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+const { useState, useMemo, useEffect, useRef } = React;
+
+// Chart.js + datalabels (evita crashear si algo no cargó)
+if (window.Chart && window.ChartDataLabels) {
+  Chart.register(ChartDataLabels);
+}
+
+const CLUB_LOGO =
+  "data:image/svg+xml;charset=utf-8," +
+  encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+    <rect width="96" height="96" rx="16" fill="#001A5A"/>
+    <path d="M20 72V24h12v48H20zm22 0V24h12v48H42zm22 0V24h12v48H64z" fill="#7EC8E3"/>
+  </svg>`);
+
+const DEFAULT_AVATAR =
+  "data:image/svg+xml;charset=utf-8," +
+  encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96">
+    <rect width="96" height="96" rx="18" fill="#f1f5f9"/>
+    <circle cx="48" cy="40" r="16" fill="#cbd5e1"/>
+    <path d="M20 84c6-16 18-22 28-22s22 6 28 22" fill="#cbd5e1"/>
+  </svg>`);
+
+// Keys (compatibles con tus versiones recientes)
+const STORAGE_KEY_DATA   = 'mf_data_v16_3';
+const STORAGE_KEY_PHOTOS = 'mf_photos_v16_3';
+const STORAGE_KEY_META   = 'mf_meta_v16_3';
+
+// ===== Helpers =====
+function norm(s){
+  return String(s||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-zA-Z0-9 ]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase();
+}
+function num(v){
+  if(v==null) return null;
+  const s = String(v).trim();
+  if(!s) return null;
+  const x = Number(s.replace(',','.'));
+  return Number.isNaN(x) ? null : x;
+}
+function parseDate(d){
+  if(!d && d!==0) return null;
+  if(d instanceof Date) return d;
+
+  // Excel serial date
+  if(typeof d === 'number' && isFinite(d)){
+    const p = XLSX.SSF.parse_date_code(d);
+    if(!p || !p.y || !p.m || !p.d) return null;
+    return new Date(p.y, p.m - 1, p.d);
+  }
+
+  const s = String(d).trim();
+  if(!s) return null;
+
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(iso){
+    const y = Number(iso[1]), m = Number(iso[2]), dd = Number(iso[3]);
+    const dt = new Date(y, m-1, dd);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  // dd-mm-yy or dd/mm/yy
+  const dmY = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if(dmY){
+    const dd = Number(dmY[1]);
+    const mm = Number(dmY[2]);
+    const yRaw = dmY[3];
+    const yy = yRaw.length===2 ? Number('20'+yRaw) : Number(yRaw);
+    const dt = new Date(yy, mm-1, dd);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  const t = Date.parse(s);
+  if(!Number.isNaN(t)) return new Date(t);
+  return null;
+}
+function dateKey(d){
+  const dt = parseDate(d);
+  if(!dt || Number.isNaN(dt.getTime())) return '';
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth()+1).padStart(2,'0');
+  const dd = String(dt.getDate()).padStart(2,'0');
+  return `${y}-${m}-${dd}`;
+}
+function fmt(n,d=0){
+  if(n==null || Number.isNaN(n)) return '—';
+  return Number(n).toLocaleString('es-AR',{maximumFractionDigits:d, minimumFractionDigits:d});
+}
+function fmtDateShort(d){
+  const dt = parseDate(d);
+  if(!dt || Number.isNaN(dt.getTime())) return '—';
+  const dd = String(dt.getDate()).padStart(2,'0');
+  const mm = String(dt.getMonth()+1).padStart(2,'0');
+  const yy = String(dt.getFullYear()).slice(-2);
+  return `${dd}-${mm}-${yy}`;
+}
+function downloadText(filename, text){
+  const blob = new Blob([text], {type:'application/json;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+function readFileAsText(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=> resolve(String(r.result||''));
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+
+// ✅ COMPRESIÓN DE FOTO (corregida)
+async function compressImageFileToDataURL(file, {maxSide=320, quality=0.78} = {}){
+  const fileURL = URL.createObjectURL(file);
+  try{
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = fileURL;
+    await new Promise((res, rej)=>{ img.onload=res; img.onerror=rej; });
+
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if(!w || !h) throw new Error('Imagen inválida');
+
+    const scale = Math.min(1, maxSide / Math.max(w, h));
+    const nw = Math.round(w * scale);
+    const nh = Math.round(h * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = nw; canvas.height = nh;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, nw, nh);
+
+    return canvas.toDataURL('image/jpeg', quality);
+  } finally {
+    URL.revokeObjectURL(fileURL);
+  }
+}
+
+// ===== Semáforos =====
+// CK: peor si sube vs promedio
+function colorCK(deltaPct){
+  if(deltaPct==null || Number.isNaN(deltaPct)) return 'bg-slate-200';
+  if(deltaPct <= 10) return 'bg-emerald-100 text-emerald-800';
+  if(deltaPct <= 15) return 'bg-amber-100 text-amber-800';
+  return 'bg-red-100 text-red-800';
+}
+// Variables “peor si baja” (fuerza, RSImod)
+function colorDrop(pctChangeVal){
+  if(pctChangeVal==null || Number.isNaN(pctChangeVal)) return 'bg-slate-200';
+  const drop = Math.max(0, -pctChangeVal);
+  if(drop < 10) return 'bg-emerald-100 text-emerald-800';
+  if(drop <= 15) return 'bg-amber-100 text-amber-800';
+  return 'bg-red-100 text-red-800';
+}
+// Wellness: 1–10, más alto peor
+function colorWellness(v){
+  if(v==null || Number.isNaN(v)) return 'bg-slate-200';
+  if(v <= 3) return 'bg-emerald-100 text-emerald-800';
+  if(v <= 6) return 'bg-amber-100 text-amber-800';
+  return 'bg-red-100 text-red-800';
+}
+
+function badgeColorClass(sev){
+  if(sev==='red') return 'bg-red-100 text-red-800';
+  if(sev==='amber') return 'bg-amber-100 text-amber-800';
+  if(sev==='green') return 'bg-emerald-100 text-emerald-800';
+  return 'bg-slate-200 text-slate-700';
+}
+function sevRank(sev){
+  if(sev==='red') return 2;
+  if(sev==='amber') return 1;
+  return 0;
+}
+function dotStyle(sev){
+  if(sev==='red') return {background:'#ef4444'};
+  if(sev==='amber') return {background:'#f59e0b'};
+  if(sev==='green') return {background:'#10b981'};
+  return {background:'#94a3b8'};
+}
+
+// ===== Niveles para ADVERTENCIAS (resumen simple) =====
+function nivelCK(deltaPct){
+  if(deltaPct==null || Number.isNaN(deltaPct)) return null;
+  return (deltaPct>15) ? {sev:'red', label:'alto'} : {sev:'amber', label:'moderado'};
+}
+function nivelDrop(pctChangeVal){
+  if(pctChangeVal==null || Number.isNaN(pctChangeVal)) return null;
+  const drop = Math.max(0, -pctChangeVal);
+  if(drop<=0) return null;
+  if(drop>15) return {sev:'red', label:'considerable'};
+  if(drop>10) return {sev:'amber', label:'moderada'};
+  return {sev:'green', label:'leve'};
+}
+function nivelWellnessMax(maxVal){
+  if(maxVal==null || Number.isNaN(maxVal)) return null;
+  if(maxVal>=8) return {sev:'red', label:'considerable'};
+  if(maxVal===7) return {sev:'red', label:'moderado'};
+  return {sev:'amber', label:'leve'};
+}
+
+
+// ===== Merge / Lotes =====
+function rowKey(o){ return (norm(o.Jugador) + '__' + dateKey(o.Fecha)); }
+function mergeRowSmart(prev, inc){
+  const out = { ...prev };
+  Object.keys(inc).forEach(k=>{
+    const v = inc[k];
+    if(v===undefined) return;
+    if(v===null || v==='') return;
+    out[k] = v;
+  });
+  return out;
+}
+function mergeRowsSmart(existing, incoming){
+  const map = new Map();
+  existing.forEach(r => map.set(rowKey(r), r));
+  incoming.forEach(r => {
+    const k = rowKey(r);
+    if(!k) return;
+    if(map.has(k)) map.set(k, mergeRowSmart(map.get(k), r));
+    else map.set(k, r);
+  });
+  return Array.from(map.values());
+}
+
+// ===== XLSX =====
+function parseXlsx(file, cb){
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data,{type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws,{defval:''});
+    cb(json);
+  };
+  reader.readAsArrayBuffer(file);
+}
+function normalizeHeaders(rawRows){
+  const mapKey=(k)=> String(k||'').trim().replace(/\s+/g,' ').replace(/[()]/g,'').toLowerCase();
+  return rawRows.map(obj=>{
+    const o = {};
+    Object.entries(obj).forEach(([k,v])=>{
+      const mk = mapKey(k);
+      if(mk.includes('jugador') || mk.includes('nombre')) o.Jugador = v;
+      else if(mk.includes('fecha')) o.Fecha = v;
+      else if(mk === 'ck' || mk.includes('creatina')) o.CK = v;
+      else if(mk.includes('fuerza') && (mk.includes('izq') || mk.includes('left'))) o['Fuerza Izq'] = v;
+      else if(mk.includes('fuerza') && (mk.includes('der') || mk.includes('right'))) o['Fuerza Der'] = v;
+      else if(mk.includes('rsimod')) o.RSImod = v;
+      else if(mk.includes('descanso') || mk.includes('sueno') || mk.includes('sueño')) o.Descanso = v;
+      else if(mk.includes('fatiga')) o.Fatiga = v;
+      else if(mk.includes('estres') || mk.includes('estrés')) o['Estrés'] = v;
+      else if(mk.includes('dolor')) o.Dolor = v;
+      else if(mk.includes('recuperacion') || mk.includes('recuperación')) o.Recuperación = v;
+    });
+    return o;
+  });
+}
+function validateRows(rows){
+  const errors = [];
+  const warns = [];
+  const ok = [];
+
+  rows.forEach((r, idx)=>{
+    const jugador = String(r.Jugador||'').trim();
+    const fecha = parseDate(r.Fecha);
+
+    const hasAny =
+      num(r.CK)!=null || num(r['Fuerza Izq'])!=null || num(r['Fuerza Der'])!=null ||
+      num(r.RSImod)!=null || num(r.Descanso)!=null || num(r.Fatiga)!=null ||
+      num(r['Estrés'])!=null || num(r.Dolor)!=null || num(r.Recuperación)!=null;
+
+    if(!jugador) return errors.push({idx, msg:'Jugador vacío'});
+    if(!fecha || Number.isNaN(fecha.getTime())) return errors.push({idx, msg:'Fecha inválida'});
+    if(!hasAny) return errors.push({idx, msg:'Fila sin datos útiles'});
+
+    const wv = {
+      Descanso: num(r.Descanso), Fatiga: num(r.Fatiga),
+      Estrés: num(r['Estrés']), Dolor: num(r.Dolor), Recuperación: num(r.Recuperación)
+    };
+    Object.entries(wv).forEach(([k,v])=>{
+      if(v==null) return;
+      if(v<1 || v>10) warns.push({idx, msg:`Wellness ${k} fuera de 1–10 (${v})`});
+    });
+
+    ok.push(r);
+  });
+
+  return { errors, warns, ok };
+}
+
+// ===== Stats =====
+const avg=(arr)=>{ const f=arr.filter(v=>v!=null); return f.length? f.reduce((a,b)=>a+b,0)/f.length : null; };
+function pctChange(cur, prev){
+  if(cur==null || prev==null || prev===0) return null;
+  return (cur - prev) / prev * 100;
+}
+function fromAvg(cur, mean){
+  if(cur==null || mean==null || mean===0) return null;
+  return (cur-mean)/mean*100;
+}
+
+// ===== Trend detection =====
+function consecutiveWorseningCount(values, worseIf){
+  const v = values.filter(x=>x!=null && !Number.isNaN(x));
+  if(v.length < 4) return 0;
+  let streak = 0;
+  for(let i=1;i<v.length;i++){
+    if(worseIf(v[i], v[i-1])) streak += 1;
+    else streak = 0;
+  }
+  return streak;
+}
+function ordinalEs(n){
+  if(n===3) return '3ra';
+  if(n===4) return '4ta';
+  if(n===5) return '5ta';
+  return `${n}ta`;
+}
+
+// ===== Model =====
+function computePlayers(rows){
+  const byPlayer = {};
+  rows.forEach(r=>{
+    const p = String(r.Jugador||'').trim();
+    if(!p) return;
+    const dt = parseDate(r.Fecha);
+    if(!dt) return;
+
+    if(!byPlayer[p]) byPlayer[p] = [];
+    byPlayer[p].push({
+      date: dt,
+      _batchId: r._batchId || null,
+      CK: num(r.CK),
+      FIzq: num(r['Fuerza Izq']),
+      FDer: num(r['Fuerza Der']),
+      RSImod: num(r.RSImod),
+      Descanso: num(r.Descanso),
+      Fatiga: num(r.Fatiga),
+      Estrés: num(r['Estrés']),
+      Dolor: num(r.Dolor),
+      Recuperación: num(r.Recuperación),
+    });
+  });
+  Object.values(byPlayer).forEach(arr=>arr.sort((a,b)=>a.date-b.date));
+  return byPlayer;
+}
+
+// ===== Charts =====
+function buildChartOptions(labelCount){
+  const maxTicks = labelCount <= 6 ? labelCount : 6;
+  return {
+    responsive:true,
+    maintainAspectRatio:false,
+    scales:{
+      x:{
+        grid:{ color:'rgba(126,200,227,.25)' },
+        ticks:{ color:'#334155', autoSkip:true, maxTicksLimit:maxTicks, maxRotation:45, minRotation:45 }
+      },
+      y:{ grid:{ color:'rgba(126,200,227,.25)' }, ticks:{ color:'#334155' } }
+    },
+    plugins:{
+      legend:{ labels:{ color:'#001A5A' } },
+      datalabels:{
+        display: labelCount <= 6,
+        color:'#001A5A',
+        align:'top',
+        offset:4,
+        formatter:(v)=> (v==null?'':v)
+      }
+    },
+    elements:{ point:{ radius:4, hoverRadius:5 }, line:{ borderWidth:2, tension:.25 } }
+  };
+}
+function LineChart({ id, labels, datasets }){
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(()=>{
+    if(!window.Chart) return;
+    if(chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(canvasRef.current,{
+      type:'line',
+      data:{ labels, datasets },
+      options: buildChartOptions(labels.length)
+    });
+    return ()=> chartRef.current && chartRef.current.destroy();
+  }, [id, JSON.stringify(labels), JSON.stringify(datasets)]);
+
+  return <div className="h-56 chart-grid rounded-lg"><canvas ref={canvasRef}></canvas></div>;
+}
+
+function EditableCell({ value, onChange, placeholder='' }){
+  return <input className="input text-sm" value={value ?? ''} placeholder={placeholder} onChange={(e)=>onChange(e.target.value)} />;
+}
+
+// ===== Carga Tab =====
+function CargaDatosTab({ baseRows, setBaseRows, setMeta }){
+  const [draftRows, setDraftRows] = useState([{
+    Jugador:'', Fecha:'',
+    CK:'', 'Fuerza Izq':'', 'Fuerza Der':'',
+    RSImod:'',
+    Descanso:'', Fatiga:'', 'Estrés':'', Dolor:'', Recuperación:''
+  }]);
+  const [report, setReport] = useState({ errors:[], warns:[], ok:[] });
+
+  function addRow(){
+    setDraftRows(prev=>[...prev, { Jugador:'', Fecha:'', CK:'', 'Fuerza Izq':'', 'Fuerza Der':'', RSImod:'', Descanso:'', Fatiga:'', 'Estrés':'', Dolor:'', Recuperación:'' }]);
+  }
+  function removeRow(i){
+    setDraftRows(prev=> prev.length===1 ? prev : prev.filter((_,idx)=>idx!==i));
+  }
+  function updateRow(i, key, val){
+    setDraftRows(prev=> prev.map((r,idx)=> idx===i ? ({...r, [key]: val}) : r));
+  }
+
+  function importarExcel(file){
+    if(!file) return;
+    parseXlsx(file, (raw)=>{
+      const normalized = normalizeHeaders(raw);
+      const dr = normalized.map(r=>({
+        Jugador: String(r.Jugador||'').trim(),
+        Fecha: r.Fecha ?? '',
+        CK: r.CK ?? '',
+        'Fuerza Izq': r['Fuerza Izq'] ?? '',
+        'Fuerza Der': r['Fuerza Der'] ?? '',
+        RSImod: r.RSImod ?? '',
+        Descanso: r.Descanso ?? '',
+        Fatiga: r.Fatiga ?? '',
+        'Estrés': r['Estrés'] ?? '',
+        Dolor: r.Dolor ?? '',
+        Recuperación: r.Recuperación ?? ''
+      }));
+      setDraftRows(dr.length ? dr : [{
+        Jugador:'', Fecha:'',
+        CK:'', 'Fuerza Izq':'', 'Fuerza Der':'', RSImod:'',
+        Descanso:'', Fatiga:'', 'Estrés':'', Dolor:'', Recuperación:''
+      }]);
+      setReport({errors:[], warns:[], ok:[]});
+    });
+  }
+
+  function validar(){
+    const normalized = draftRows.map(r=>({
+      Jugador: String(r.Jugador||'').trim(),
+      Fecha: r.Fecha,
+      CK: num(r.CK),
+      'Fuerza Izq': num(r['Fuerza Izq']),
+      'Fuerza Der': num(r['Fuerza Der']),
+      RSImod: num(r.RSImod),
+      Descanso: num(r.Descanso),
+      Fatiga: num(r.Fatiga),
+      'Estrés': num(r['Estrés']),
+      Dolor: num(r.Dolor),
+      Recuperación: num(r.Recuperación)
+    }));
+    const res = validateRows(normalized);
+    setReport(res);
+    return res;
+  }
+
+  function guardarEnBase(){
+    const res = validar();
+    if(res.errors.length){
+      alert('Hay errores. Corregilos antes de guardar.');
+      return;
+    }
+
+    const batchId = 'batch_' + Date.now();
+
+    const okWithBatch = res.ok.map(r=>({
+      ...r,
+      _batchId: batchId
+    }));
+
+    const merged = mergeRowsSmart(baseRows, okWithBatch);
+    setBaseRows(merged);
+
+    setMeta(prev=>({ ...prev, lastBatchId: batchId, lastBatchAtISO: new Date().toISOString() }));
+
+    alert(`Datos guardados ✅ (registros en esta carga: ${okWithBatch.length})`);
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="app-card p-4">
+        <div className="flex flex-wrap items-center gap-2 justify-between">
+          <div>
+            <h2 className="text-xl font-semibold accent">Carga de datos (Excel)</h2>
+            <div className="mini">Importá .xlsx, validá y guardá. Merge por Jugador + Fecha. Se registra un “lote” por carga.</div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 no-print">
+            <label className="btn-primary cursor-pointer">
+              Importar Excel (.xlsx)
+              <input type="file" className="hidden" accept=".xlsx,.xls" onChange={(e)=>importarExcel(e.target.files[0])}/>
+            </label>
+            <button type="button" className="btn" onClick={validar}>Validar</button>
+            <button type="button" className="btn-primary" onClick={guardarEnBase}>Guardar</button>
+            <button type="button" className="btn" onClick={addRow}>+ Fila</button>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className={"chip"}>OK: {report.ok.length}</span>
+          <span className={"chip"}>Advertencias: {report.warns.length}</span>
+          <span className={"chip"}>Errores: {report.errors.length}</span>
+        </div>
+      </div>
+
+      <div className="app-card overflow-auto">
+        <table className="min-w-full">
+          <thead>
+            <tr className="text-left text-xs uppercase text-slate-600 bg-white">
+              <th className="px-3 py-2">Jugador</th>
+              <th className="px-3 py-2">Fecha</th>
+              <th className="px-3 py-2">Fecha (key)</th>
+              <th className="px-3 py-2">CK</th>
+              <th className="px-3 py-2">Fuerza Izq</th>
+              <th className="px-3 py-2">Fuerza Der</th>
+              <th className="px-3 py-2">RSImod</th>
+              <th className="px-3 py-2">Desc</th>
+              <th className="px-3 py-2">Fat</th>
+              <th className="px-3 py-2">Estrés</th>
+              <th className="px-3 py-2">Dolor</th>
+              <th className="px-3 py-2">Recup</th>
+              <th className="px-3 py-2">Acción</th>
+            </tr>
+          </thead>
+          <tbody className="text-sm">
+            {draftRows.map((r,i)=>(
+              <tr key={i} className="border-t border-[var(--borde)]">
+                <td className="px-3 py-2 w-[240px]"><EditableCell value={r.Jugador} onChange={(v)=>updateRow(i,'Jugador',v)} placeholder="Nombre y apellido" /></td>
+                <td className="px-3 py-2 w-[170px]"><EditableCell value={r.Fecha} onChange={(v)=>updateRow(i,'Fecha',v)} placeholder="24-10-25 o 2025-10-24" /></td>
+                <td className="px-3 py-2 w-[120px]"><span className="chip">{dateKey(r.Fecha) || '—'}</span></td>
+                <td className="px-3 py-2 w-[120px]"><EditableCell value={r.CK} onChange={(v)=>updateRow(i,'CK',v)} /></td>
+                <td className="px-3 py-2 w-[140px]"><EditableCell value={r['Fuerza Izq']} onChange={(v)=>updateRow(i,'Fuerza Izq',v)} /></td>
+                <td className="px-3 py-2 w-[140px]"><EditableCell value={r['Fuerza Der']} onChange={(v)=>updateRow(i,'Fuerza Der',v)} /></td>
+                <td className="px-3 py-2 w-[120px]"><EditableCell value={r.RSImod} onChange={(v)=>updateRow(i,'RSImod',v)} /></td>
+                <td className="px-3 py-2 w-[90px]"><EditableCell value={r.Descanso} onChange={(v)=>updateRow(i,'Descanso',v)} /></td>
+                <td className="px-3 py-2 w-[90px]"><EditableCell value={r.Fatiga} onChange={(v)=>updateRow(i,'Fatiga',v)} /></td>
+                <td className="px-3 py-2 w-[90px]"><EditableCell value={r['Estrés']} onChange={(v)=>updateRow(i,'Estrés',v)} /></td>
+                <td className="px-3 py-2 w-[90px]"><EditableCell value={r.Dolor} onChange={(v)=>updateRow(i,'Dolor',v)} /></td>
+                <td className="px-3 py-2 w-[110px]"><EditableCell value={r.Recuperación} onChange={(v)=>updateRow(i,'Recuperación',v)} /></td>
+                <td className="px-3 py-2"><button type="button" className="btn no-print" onClick={()=>removeRow(i)}>Eliminar</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ===== Wellness (últimos 3, orden antiguo→reciente) =====
+function WellnessLast3({ hist }){
+  const last3 = (arr)=> arr.slice(-3).map(v=> (v==null?'—':v));
+  const map = {
+    Descanso: last3(hist.map(h=>h.Descanso)),
+    Fatiga: last3(hist.map(h=>h.Fatiga)),
+    'Estrés': last3(hist.map(h=>h.Estrés)),
+    Dolor: last3(hist.map(h=>h.Dolor)),
+    Recuperación: last3(hist.map(h=>h.Recuperación)),
+  };
+
+  return (
+    <div className="grid md:grid-cols-5 gap-2">
+      {Object.entries(map).map(([k,vals])=>(
+        <div key={k} className="border rounded-xl p-2">
+          <div className="text-xs font-semibold text-slate-700">{k}</div>
+          <div className="mt-2 flex gap-1 flex-wrap">
+            {vals.map((v,idx)=>(
+              <span key={idx} className={"chip " + colorWellness(typeof v==='number'?v:null)}>
+                {v==='—' ? '—' : v}
+              </span>
+            ))}
+          </div>
+          <div className="mini mt-1">Antiguo → reciente</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ===== Fuerza (último + % vs anterior) CON SEMÁFORO =====
+function ForceLatestWithPct({ hist }){
+  const n = hist.length;
+  const last = hist[n-1] || {};
+  const prev = n>=2 ? hist[n-2] : null;
+
+  const izq = last.FIzq ?? null;
+  const der = last.FDer ?? null;
+  const izqPct = prev ? pctChange(izq, prev.FIzq ?? null) : null;
+  const derPct = prev ? pctChange(der, prev.FDer ?? null) : null;
+
+  const fmtPct = (p)=> p==null ? '—' : (p>=0 ? `+${fmt(p,1)}%` : `${fmt(p,1)}%`);
+
+  return (
+    <div className="grid md:grid-cols-2 gap-2">
+      <div className="border rounded-xl p-3">
+        <div className="text-xs font-semibold text-slate-700">Fuerza Izq (última)</div>
+        <div className="mt-1 flex items-center gap-2">
+          <span className={"chip " + colorDrop(izqPct)}>{fmt(izq)}</span>
+          <span className={"chip " + colorDrop(izqPct)}>{fmtPct(izqPct)}</span>
+        </div>
+        <div className="mini mt-1">% vs evaluación anterior (caída = peor)</div>
+      </div>
+      <div className="border rounded-xl p-3">
+        <div className="text-xs font-semibold text-slate-700">Fuerza Der (última)</div>
+        <div className="mt-1 flex items-center gap-2">
+          <span className={"chip " + colorDrop(derPct)}>{fmt(der)}</span>
+          <span className={"chip " + colorDrop(derPct)}>{fmtPct(derPct)}</span>
+        </div>
+        <div className="mini mt-1">% vs evaluación anterior (caída = peor)</div>
+      </div>
+    </div>
+  );
+}
+
+// ===== Build data =====
+function buildTableData(rows){
+  const players = computePlayers(rows);
+  const names = Object.keys(players).sort();
+
+  return names.map(name=>{
+    const hist = players[name];
+    const latest = hist.at(-1) || {};
+    const prev = hist.length >= 2 ? hist.at(-2) : null;
+
+    const ckArr = hist.map(h=>h.CK).filter(v=>v!=null);
+    const ckAvg = avg(ckArr);
+    const ckDelta = fromAvg(latest.CK ?? null, ckAvg);
+
+    const pctIzq = prev ? pctChange(latest.FIzq ?? null, prev.FIzq ?? null) : null;
+    const pctDer = prev ? pctChange(latest.FDer ?? null, prev.FDer ?? null) : null;
+
+    const pctRS = prev ? pctChange(latest.RSImod ?? null, prev.RSImod ?? null) : null;
+
+    const wellness = {
+      Descanso: latest.Descanso ?? null,
+      Fatiga: latest.Fatiga ?? null,
+      'Estrés': latest.Estrés ?? null,
+      Dolor: latest.Dolor ?? null,
+      Recuperación: latest.Recuperación ?? null
+    };
+
+    const trends = {
+      CK: consecutiveWorseningCount(hist.map(h=>h.CK), (cur,prev)=>cur>prev),               // peor si sube
+      FuerzaIzq: consecutiveWorseningCount(hist.map(h=>h.FIzq), (cur,prev)=>cur<prev),     // peor si baja
+      FuerzaDer: consecutiveWorseningCount(hist.map(h=>h.FDer), (cur,prev)=>cur<prev),
+      RSImod: consecutiveWorseningCount(hist.map(h=>h.RSImod), (cur,prev)=>cur<prev),
+      W_Descanso: consecutiveWorseningCount(hist.map(h=>h.Descanso), (cur,prev)=>cur>prev),
+      W_Fatiga: consecutiveWorseningCount(hist.map(h=>h.Fatiga), (cur,prev)=>cur>prev),
+      W_Estrés: consecutiveWorseningCount(hist.map(h=>h.Estrés), (cur,prev)=>cur>prev),
+      W_Dolor: consecutiveWorseningCount(hist.map(h=>h.Dolor), (cur,prev)=>cur>prev),
+      W_Recuperación: consecutiveWorseningCount(hist.map(h=>h.Recuperación), (cur,prev)=>cur>prev),
+    };
+
+    return {
+      name, hist,
+      latestDate: latest.date ?? null,
+      ck:{ val: latest.CK ?? null, avg: ckAvg, delta: ckDelta },
+      fuerza:{ izq: latest.FIzq ?? null, der: latest.FDer ?? null, pctIzq, pctDer },
+      rsimod:{ val: latest.RSImod ?? null, pct: pctRS },
+      wellness,
+      trends
+    };
+  });
+}
+
+// ===== Advertencias y Alertas (más jerárquico) =====
+function buildWarningsAndAlerts(tableData, presentSet){
+  const warnings = [];
+  const alerts = [];
+
+  tableData.forEach(r=>{
+    if(presentSet && !presentSet.has(r.name)) return;
+
+    // -------- Advertencias (resumen simple) --------
+    const wParts = [];
+    const wBadges = [];
+    let wMax = 'green';
+
+    const pushWarn = (key, sev, text)=>{
+      wBadges.push({key, sev});
+      wParts.push({key, sev, text});
+      if(sevRank(sev) > sevRank(wMax)) wMax = sev;
+    };
+
+    // CK (sube vs promedio)
+    if(r.ck.delta!=null && r.ck.delta>10){
+      const n = nivelCK(r.ck.delta);
+      pushWarn('CK', n.sev, `aumento ${n.label}`);
+    }
+
+    // Fuerza isquios (baja vs anterior)
+    const izqFlag = (r.fuerza.pctIzq!=null && r.fuerza.pctIzq < -10);
+    const derFlag = (r.fuerza.pctDer!=null && r.fuerza.pctDer < -10);
+    if(izqFlag || derFlag){
+      const izqN = izqFlag ? nivelDrop(r.fuerza.pctIzq) : null;
+      const derN = derFlag ? nivelDrop(r.fuerza.pctDer) : null;
+
+      const worst =
+        (izqN && derN) ? (sevRank(izqN.sev)>=sevRank(derN.sev) ? izqN : derN)
+        : (izqN || derN);
+
+      const lado =
+        (izqN && derN) ? 'bilateral'
+        : izqN ? 'Izq'
+        : 'Der';
+
+      pushWarn('Fuerza', worst.sev, `disminución ${worst.label} (${lado})`);
+    }
+
+    // RSImod (baja vs anterior)
+    if(r.rsimod.pct!=null && r.rsimod.pct < -10){
+      const n = nivelDrop(r.rsimod.pct);
+      pushWarn('RSImod', n.sev, `disminución ${n.label}`);
+    }
+
+    // Wellness (más alto peor)
+    const wVals = Object.values(r.wellness).filter(v=>v!=null && !Number.isNaN(v));
+    const wMaxVal = wVals.length ? Math.max(...wVals) : null;
+    if(wMaxVal!=null && wMaxVal>=6){
+      const n = nivelWellnessMax(wMaxVal);
+      pushWarn('Wellness', n.sev, `alto ${n.label}`);
+    }
+
+    if(wParts.length){
+      const order = {CK:0, Fuerza:1, RSImod:2, Wellness:3};
+      wParts.sort((a,b)=>(order[a.key]??99)-(order[b.key]??99));
+      warnings.push({ name:r.name, severity:wMax, badges:wBadges, parts:wParts });
+    }
+
+    // -------- Alertas (tendencias) --------
+    const aParts = [];
+    const aBadges = [];
+    let aMax = 'green';
+
+    const pushAlert = (key, sev, text)=>{
+      aBadges.push({key, sev});
+      aParts.push({key, sev, text});
+      if(sevRank(sev) > sevRank(aMax)) aMax = sev;
+    };
+
+    if(r.trends.CK >= 3){
+      const sev = r.trends.CK >= 4 ? 'red' : 'amber';
+      pushAlert('CK', sev, `CK en aumento por ${ordinalEs(r.trends.CK)} consecutiva.`);
+    }
+    if(r.trends.FuerzaIzq >= 3){
+      const sev = r.trends.FuerzaIzq >= 4 ? 'red' : 'amber';
+      pushAlert('Fuerza', sev, `Fuerza Izq baja por ${ordinalEs(r.trends.FuerzaIzq)} consecutiva.`);
+    }
+    if(r.trends.FuerzaDer >= 3){
+      const sev = r.trends.FuerzaDer >= 4 ? 'red' : 'amber';
+      pushAlert('Fuerza', sev, `Fuerza Der baja por ${ordinalEs(r.trends.FuerzaDer)} consecutiva.`);
+    }
+    if(r.trends.RSImod >= 3){
+      const sev = r.trends.RSImod >= 4 ? 'red' : 'amber';
+      pushAlert('RSImod', sev, `RSImod baja por ${ordinalEs(r.trends.RSImod)} consecutiva.`);
+    }
+
+    ['Descanso','Fatiga','Estrés','Dolor','Recuperación'].forEach(k=>{
+      if(r.trends[`W_${k}`] >= 3){
+        const sev = r.trends[`W_${k}`] >= 4 ? 'red' : 'amber';
+        pushAlert('Wellness', sev, `Wellness (${k}) empeora por ${ordinalEs(r.trends[`W_${k}`])} consecutiva.`);
+      }
+    });
+
+    if(aParts.length){
+      const order = {CK:0, Fuerza:1, RSImod:2, Wellness:3};
+      aParts.sort((a,b)=>(order[a.key]??99)-(order[b.key]??99));
+      alerts.push({ name:r.name, severity:aMax, badges:aBadges, parts:aParts });
+    }
+  });
+
+  const sortBySev = (a,b)=> sevRank(b.severity)-sevRank(a.severity) || a.name.localeCompare(b.name);
+  warnings.sort(sortBySev);
+  alerts.sort(sortBySev);
+
+  return { warnings, alerts };
+}
+
+
+function uniqueBadges(badges){
+  const map = new Map();
+  badges.forEach(b=>{
+    const cur = map.get(b.key);
+    if(!cur || sevRank(b.sev) > sevRank(cur.sev)) map.set(b.key, b);
+  });
+  return Array.from(map.values()).sort((a,b)=>{
+    const order = {CK:0, Fuerza:1, RSImod:2, Wellness:3};
+    return (order[a.key]??99) - (order[b.key]??99);
+  });
+}
+
+// ===== Visualización =====
+function VisualizacionTab({ rows, photos, meta, onOpenPlayer, onPrintTeamLastLoad }){
+  const tableData = useMemo(()=>buildTableData(rows), [rows]);
+
+  const presentSet = useMemo(()=>{
+    if(!meta?.lastBatchId) return null;
+    const s = new Set();
+    rows.forEach(r=>{
+      if(r._batchId === meta.lastBatchId){
+        const name = String(r.Jugador||'').trim();
+        if(name) s.add(name);
+      }
+    });
+    return s;
+  }, [rows, meta?.lastBatchId]);
+
+  const { warnings, alerts } = useMemo(()=>buildWarningsAndAlerts(tableData, presentSet), [tableData, presentSet]);
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="app-card p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-xl font-semibold accent">Visualización</div>
+          <div className="mini">
+            Click en jugador para panel individual. Impresión: <b>solo última carga</b>.
+          </div>
+        </div>
+
+        <div className="no-print">
+          <button className="btn-primary" onClick={onPrintTeamLastLoad}>🖨️ Imprimir equipo</button>
+        </div>
+      </div>
+
+      <div className="app-card overflow-auto">
+        <table className="min-w-full">
+          <thead>
+            <tr className="text-left text-xs uppercase text-slate-600">
+              <th className="px-3 py-2">Jugador</th>
+              <th className="px-3 py-2">Fecha</th>
+              <th className="px-3 py-2">CK (val)</th>
+              <th className="px-3 py-2">CK (prom)</th>
+              <th className="px-3 py-2">Isq Izq</th>
+              <th className="px-3 py-2">Isq Der</th>
+              <th className="px-3 py-2">RSImod</th>
+              <th className="px-3 py-2">Desc</th>
+              <th className="px-3 py-2">Fat</th>
+              <th className="px-3 py-2">Estrés</th>
+              <th className="px-3 py-2">Dolor</th>
+              <th className="px-3 py-2">Recup</th>
+            </tr>
+          </thead>
+          <tbody className="text-sm">
+            {tableData.length===0 && (
+              <tr><td className="px-3 py-6 text-slate-400" colSpan="12">
+                No hay datos aún. Cargá desde <b>Carga de datos</b>.
+              </td></tr>
+            )}
+            {tableData.map(r=>(
+              <tr
+                key={r.name}
+                className="border-t border-[var(--borde)] hover:bg-slate-50 cursor-pointer"
+                onClick={()=>onOpenPlayer(r.name)}
+                title="Click para ver panel individual"
+              >
+                <td className="px-3 py-2 font-medium accent flex items-center gap-2">
+                  <img className="avatar-sm" src={photos[norm(r.name)] || DEFAULT_AVATAR} alt=""/>
+                  {r.name}
+                </td>
+                <td className="px-3 py-2"><span className="chip">{r.latestDate ? fmtDateShort(r.latestDate) : '—'}</span></td>
+                <td className="px-3 py-2"><span className={"chip " + colorCK(r.ck.delta)}>{fmt(r.ck.val)}</span></td>
+                <td className="px-3 py-2"><span className="chip">{fmt(r.ck.avg)}</span></td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    <span className="chip">{fmt(r.fuerza.izq)}</span>
+                    <span className={"chip " + colorDrop(r.fuerza.pctIzq)}>{fmtPct(r.fuerza.pctIzq)}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1">
+                    <span className="chip">{fmt(r.fuerza.der)}</span>
+                    <span className={"chip " + colorDrop(r.fuerza.pctDer)}>{fmtPct(r.fuerza.pctDer)}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2"><span className={"chip " + colorDrop(r.rsimod.pct)}>{fmt(r.rsimod.val,2)}</span></td>
+                <td className="px-3 py-2"><span className={"chip " + colorWellness(r.wellness.Descanso)}>{fmt(r.wellness.Descanso)}</span></td>
+                <td className="px-3 py-2"><span className={"chip " + colorWellness(r.wellness.Fatiga)}>{fmt(r.wellness.Fatiga)}</span></td>
+                <td className="px-3 py-2"><span className={"chip " + colorWellness(r.wellness['Estrés'])}>{fmt(r.wellness['Estrés'])}</span></td>
+                <td className="px-3 py-2"><span className={"chip " + colorWellness(r.wellness.Dolor)}>{fmt(r.wellness.Dolor)}</span></td>
+                <td className="px-3 py-2"><span className={"chip " + colorWellness(r.wellness.Recuperación)}>{fmt(r.wellness.Recuperación)}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <AlertsHierarchy title="Advertencias" subtitle="Umbrales en la evaluación actual (última carga)" items={warnings} photos={photos} />
+      <AlertsHierarchy title="Alertas" subtitle="Tendencias (3+ consecutivas) — solo jugadores presentes en la última carga" items={alerts} photos={photos} />
+    </div>
+  );
+}
+
+function AlertsHierarchy({ title, subtitle, items, photos }){
+  const reds = items.filter(x=>x.severity==='red');
+  const ambs = items.filter(x=>x.severity==='amber');
+
+  const sections = [
+    {label:'Críticas', sev:'red', list: reds},
+    {label:'Moderadas', sev:'amber', list: ambs},
+  ];
+
+  return (
+    <div className="app-card p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div className="font-semibold accent text-lg">{title}</div>
+          <div className="mini">{subtitle}</div>
+        </div>
+        <span className="chip">{items.length} jugador(es)</span>
+      </div>
+
+      {items.length===0 ? (
+        <div className="mt-3 text-slate-500">Sin {title.toLowerCase()} ✅</div>
+      ) : (
+        <div className="mt-3 space-y-4">
+          {sections.map(sec=>(
+            sec.list.length ? (
+              <div key={sec.sev}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={"chip " + badgeColorClass(sec.sev)}>{sec.label}</span>
+                  <span className="mini">{sec.list.length} jugador(es)</span>
+                </div>
+                <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {sec.list.map(a=>(
+                    <div key={a.name} className="border rounded-xl p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <img className="avatar-sm" src={photos[norm(a.name)] || DEFAULT_AVATAR} alt=""/>
+                          <div>
+                            <div className="font-semibold accent">{a.name}</div>
+                            <div className="mini">Orden: CK → Fuerza → RSImod → Wellness</div>
+                          </div>
+                        </div>
+                        <span className={"chip " + badgeColorClass(a.severity)}>
+                          {a.severity==='red'?'ALTA': 'MEDIA'}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {uniqueBadges(a.badges).map((b,idx)=>(
+                          <span key={idx} className="badge">
+                            <span className="badge-dot" style={dotStyle(b.sev)}></span>
+                            {b.key}
+                          </span>
+                        ))}
+                      </div>
+
+                      <ul className="list-dot text-sm mt-3">
+                        {a.parts.map((p,idx)=>(
+                          <li key={idx}>
+                            <span className={"chip mr-2 " + badgeColorClass(p.sev)} style={{fontWeight:700}}>
+                              {p.key}
+                            </span>
+                            {p.text}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== Print Team (ÚLTIMA CARGA) con semáforos =====
+function PrintTeamLastLoad({ rows, photos, meta }){
+  const lastBatchId = meta?.lastBatchId || null;
+
+  const batchRows = useMemo(()=>{
+    if(!lastBatchId) return [];
+    return rows.filter(r=>r._batchId === lastBatchId);
+  }, [rows, lastBatchId]);
+
+  const presentSet = useMemo(()=>{
+    if(!lastBatchId) return new Set();
+    const s = new Set();
+    batchRows.forEach(r=>{
+      const n = String(r.Jugador||'').trim();
+      if(n) s.add(n);
+    });
+    return s;
+  }, [batchRows, lastBatchId]);
+
+  const tableDataAll = useMemo(()=>buildTableData(rows), [rows]);
+  const { warnings, alerts } = useMemo(()=>buildWarningsAndAlerts(tableDataAll, presentSet), [tableDataAll, presentSet]);
+
+  const tableData = useMemo(()=>{
+    return tableDataAll.filter(r=>presentSet.has(r.name));
+  }, [tableDataAll, presentSet]);
+
+  return (
+    <div className="print-page">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img src={CLUB_LOGO} className="logo" alt="Escudo"/>
+          <div>
+            <div className="print-h2">Monitoreo de Fatiga – Equipo</div>
+            <div className="print-sub">Impresión: última carga (tablero + advertencias + alertas)</div>
+          </div>
+        </div>
+        <div className="print-sub">{meta?.lastBatchAtISO ? fmtDateShort(meta.lastBatchAtISO) : fmtDateShort(new Date())}</div>
+      </div>
+
+      <div className="mt-3 print-card">
+        <div className="print-h2">Tablero (jugadores de la última carga)</div>
+        <div className="mt-2 overflow-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="text-left uppercase text-slate-600">
+                <th className="py-1 pr-2">Jugador</th>
+                <th className="py-1 pr-2">Fecha</th>
+                <th className="py-1 pr-2">CK (val)</th>
+                <th className="py-1 pr-2">CK (prom)</th>
+                <th className="py-1 pr-2">Isq Izq</th>
+                <th className="py-1 pr-2">Isq Der</th>
+                <th className="py-1 pr-2">RSImod</th>
+                <th className="py-1 pr-2">Desc</th>
+                <th className="py-1 pr-2">Fat</th>
+                <th className="py-1 pr-2">Estrés</th>
+                <th className="py-1 pr-2">Dolor</th>
+                <th className="py-1 pr-2">Recup</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableData.map(r=>(
+                <tr key={r.name} className="border-t">
+                  <td className="py-1 pr-2">
+                    <div className="flex items-center gap-2">
+                      <img className="avatar-sm" src={photos[norm(r.name)] || DEFAULT_AVATAR} alt=""/>
+                      <span className="font-medium accent">{r.name}</span>
+                    </div>
+                  </td>
+                  <td className="py-1 pr-2">{r.latestDate ? fmtDateShort(r.latestDate) : '—'}</td>
+                  <td className="py-1 pr-2"><span className={"chip " + colorCK(r.ck.delta)}>{fmt(r.ck.val)}</span></td>
+                  <td className="py-1 pr-2"><span className="chip">{fmt(r.ck.avg)}</span></td>
+                  <td className="py-1 pr-2">
+                    <div className="flex items-center gap-1">
+                      <span className="chip">{fmt(r.fuerza.izq)}</span>
+                      <span className={"chip " + colorDrop(r.fuerza.pctIzq)}>{fmtPct(r.fuerza.pctIzq)}</span>
+                    </div>
+                  </td>
+                  <td className="py-1 pr-2">
+                    <div className="flex items-center gap-1">
+                      <span className="chip">{fmt(r.fuerza.der)}</span>
+                      <span className={"chip " + colorDrop(r.fuerza.pctDer)}>{fmtPct(r.fuerza.pctDer)}</span>
+                    </div>
+                  </td>
+                  <td className="py-1 pr-2"><span className={"chip " + colorDrop(r.rsimod.pct)}>{fmt(r.rsimod.val,2)}</span></td>
+                  <td className="py-1 pr-2"><span className={"chip " + colorWellness(r.wellness.Descanso)}>{fmt(r.wellness.Descanso)}</span></td>
+                  <td className="py-1 pr-2"><span className={"chip " + colorWellness(r.wellness.Fatiga)}>{fmt(r.wellness.Fatiga)}</span></td>
+                  <td className="py-1 pr-2"><span className={"chip " + colorWellness(r.wellness['Estrés'])}>{fmt(r.wellness['Estrés'])}</span></td>
+                  <td className="py-1 pr-2"><span className={"chip " + colorWellness(r.wellness.Dolor)}>{fmt(r.wellness.Dolor)}</span></td>
+                  <td className="py-1 pr-2"><span className={"chip " + colorWellness(r.wellness.Recuperación)}>{fmt(r.wellness.Recuperación)}</span></td>
+                </tr>
+              ))}
+              {tableData.length===0 && (
+                <tr><td className="py-2 text-slate-500" colSpan="12">No hay una “última carga” registrada todavía.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-3 print-card">
+        <div className="print-h2">Advertencias (última carga)</div>
+        {warnings.length===0 ? <div className="print-sub mt-1">Sin advertencias ✅</div> : (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {warnings.map(a=>(
+              <div key={a.name} className="border rounded-xl p-2">
+                <div className="font-semibold" style={{color:'var(--azul)'}}>{a.name}</div>
+                <ul className="list-dot text-xs mt-1">
+                  {a.parts.map((p,idx)=><li key={idx}><b>{p.key}:</b> {p.text}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 print-card">
+        <div className="print-h2">Alertas (última carga)</div>
+        {alerts.length===0 ? <div className="print-sub mt-1">Sin alertas ✅</div> : (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {alerts.map(a=>(
+              <div key={a.name} className="border rounded-xl p-2">
+                <div className="font-semibold" style={{color:'var(--azul)'}}>{a.name}</div>
+                <ul className="list-dot text-xs mt-1">
+                  {a.parts.map((p,idx)=><li key={idx}><b>{p.key}:</b> {p.text}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 print-sub" style={{textAlign:'right'}}>
+        Lic. Tomas Nobrega
+      </div>
+    </div>
+  );
+}
+
+// ===== Print Player =====
+function PrintPlayerReport({ photos, playerName, playerHist }){
+  return (
+    <div className="print-page">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img src={CLUB_LOGO} className="logo" alt="Escudo"/>
+          <div>
+            <div className="print-h2">Monitoreo de Fatiga – Jugador</div>
+            <div className="print-sub">Impresión: análisis individual</div>
+          </div>
+        </div>
+        <div className="print-sub">{fmtDateShort(new Date())}</div>
+      </div>
+
+      <div className="mt-3 print-card">
+        {!playerName || !playerHist ? (
+          <div className="print-sub">No se seleccionó jugador.</div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <img className="avatar-sm" src={photos[norm(playerName)] || DEFAULT_AVATAR} alt=""/>
+              <div>
+                <div className="font-semibold" style={{color:'var(--azul)'}}>{playerName}</div>
+                <div className="print-sub">Fuerza con semáforo • Wellness antiguo→reciente</div>
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <div className="print-sub"><b>Fuerza (último + % vs anterior)</b></div>
+              <ForceLatestWithPct hist={playerHist}/>
+            </div>
+
+            <div className="mt-3">
+              <div className="print-sub"><b>Wellness (últimos 3 valores)</b></div>
+              <WellnessLast3 hist={playerHist}/>
+            </div>
+
+            <div className="mt-3">
+              <div className="print-sub"><b>Fuerza Isquios</b></div>
+              <LineChart
+                id={"p_f_"+playerName}
+                labels={playerHist.map(d=>fmtDateShort(d.date))}
+                datasets={[
+                  { label:'Izq', data:playerHist.map(d=>d.FIzq ?? null), borderColor:'#7EC8E3', backgroundColor:'#7EC8E3' },
+                  { label:'Der', data:playerHist.map(d=>d.FDer ?? null), borderColor:'#f97316', backgroundColor:'#f97316' }
+                ]}
+              />
+            </div>
+
+            <div className="mt-3">
+              <div className="print-sub"><b>RSImod</b></div>
+              <LineChart
+                id={"p_r_"+playerName}
+                labels={playerHist.map(d=>fmtDateShort(d.date))}
+                datasets={[
+                  { label:'RSImod', data:playerHist.map(d=>d.RSImod ?? null), borderColor:'#3764E6', backgroundColor:'#3764E6' }
+                ]}
+              />
+            </div>
+
+            <div className="mt-3">
+              <div className="print-sub"><b>CK</b></div>
+              <LineChart
+                id={"p_c_"+playerName}
+                labels={playerHist.map(d=>fmtDateShort(d.date))}
+                datasets={[
+                  { label:'CK', data:playerHist.map(d=>d.CK ?? null), borderColor:'#001A5A', backgroundColor:'#001A5A' }
+                ]}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="mt-3 print-sub" style={{textAlign:'right'}}>
+        Lic. Tomas Nobrega
+      </div>
+    </div>
+  );
+}
+
+// ===== Modal Jugador =====
+function PlayerModal({ playerName, hist, photoURL, onPhotoChange, onClose, onPrintJugador }){
+  const labels = hist.map(d=> fmtDateShort(d.date));
+  const ck   = hist.map(d=> d.CK ?? null);
+  const rs   = hist.map(d=> d.RSImod ?? null);
+  const fizq = hist.map(d=> d.FIzq ?? null);
+  const fder = hist.map(d=> d.FDer ?? null);
+
+  return (
+    <div className="modal-backdrop no-print" onMouseDown={(e)=>{ if(e.target.classList.contains('modal-backdrop')) onClose(); }}>
+      <div className="modal app-card p-4" onMouseDown={(e)=>e.stopPropagation()}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <img className="avatar" src={photoURL || DEFAULT_AVATAR} alt="Foto jugador"/>
+            <div>
+              <div className="text-xl font-semibold accent">{playerName}</div>
+              <div className="mini">Panel individual • Fuerza con semáforo • Wellness antiguo→reciente</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="btn cursor-pointer">
+              Cargar/Cambiar foto
+              <input
+                className="hidden"
+                type="file"
+                accept="image/*"
+                onChange={async (e)=>{
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if(!file) return;
+                  try{
+                    const dataURL = await compressImageFileToDataURL(file, {maxSide:320, quality:0.78});
+                    onPhotoChange(dataURL);
+                  }catch(err){
+                    alert('No se pudo procesar la foto. Probá con otra imagen más liviana.');
+                  }
+                }}
+              />
+            </label>
+            <button type="button" className="btn" onClick={onPrintJugador}>🖨️ Imprimir jugador</button>
+            <button type="button" className="btn-primary" onClick={onClose}>Cerrar</button>
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-3 mt-4">
+          <div className="app-card p-3">
+            <div className="font-semibold accent mb-2">Fuerza (último + % vs anterior)</div>
+            <ForceLatestWithPct hist={hist}/>
+          </div>
+          <div className="app-card p-3">
+            <div className="font-semibold accent mb-2">Wellness (últimos 3 valores)</div>
+            <WellnessLast3 hist={hist}/>
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-4 mt-4">
+          <div className="app-card p-3">
+            <div className="font-semibold accent mb-2">Fuerza Isquios (Izq/Der)</div>
+            <LineChart
+              id={"f_"+playerName}
+              labels={labels}
+              datasets={[
+                { label:'Izq', data:fizq, borderColor:'#7EC8E3', backgroundColor:'#7EC8E3' },
+                { label:'Der', data:fder, borderColor:'#f97316', backgroundColor:'#f97316' }
+              ]}
+            />
+          </div>
+
+          <div className="app-card p-3">
+            <div className="font-semibold accent mb-2">RSImod</div>
+            <LineChart
+              id={"r_"+playerName}
+              labels={labels}
+              datasets={[
+                { label:'RSImod', data:rs, borderColor:'#3764E6', backgroundColor:'#3764E6' }
+              ]}
+            />
+          </div>
+
+          <div className="app-card p-3 lg:col-span-2">
+            <div className="font-semibold accent mb-2">CK</div>
+            <LineChart
+              id={"c_"+playerName}
+              labels={labels}
+              datasets={[
+                { label:'CK', data:ck, borderColor:'#001A5A', backgroundColor:'#001A5A' }
+              ]}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===== ErrorBoundary =====
+class ErrorBoundary extends React.Component{
+  constructor(props){ super(props); this.state={ hasError:false, error:null }; }
+  static getDerivedStateFromError(error){ return { hasError:true, error }; }
+  componentDidCatch(error, info){ console.error('App error:', error, info); }
+  render(){
+    if(this.state.hasError){
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6">
+          <div className="app-card p-6 max-w-xl w-full">
+            <div className="text-xl font-bold accent">Se produjo un error</div>
+            <div className="mini mt-2">La app evitó quedarse en blanco. Recargá. Si fue al cargar una foto, probablemente era muy pesada.</div>
+            <div className="mt-4 flex gap-2">
+              <button className="btn-primary" onClick={()=>location.reload()}>Recargar</button>
+              <button className="btn" onClick={()=>{ localStorage.removeItem(STORAGE_KEY_PHOTOS); alert('Fotos borradas. Recargá.'); }}>Borrar fotos</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ===== App =====
+function App(){
+  const [tab, setTab] = useState('visualizacion');
+  const [rows, setRows] = useState(()=> {
+    const cached = localStorage.getItem(STORAGE_KEY_DATA);
+    return cached ? JSON.parse(cached) : [];
+  });
+  const [photos, setPhotos] = useState(()=> {
+    const cached = localStorage.getItem(STORAGE_KEY_PHOTOS);
+    return cached ? JSON.parse(cached) : {};
+  });
+  const [meta, setMeta] = useState(()=> {
+    const cached = localStorage.getItem(STORAGE_KEY_META);
+    return cached ? JSON.parse(cached) : { lastBackupISO:null, lastBatchId:null, lastBatchAtISO:null };
+  });
+
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [printMode, setPrintMode] = useState('team_last'); // team_last | player
+
+  useEffect(()=>{ localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(rows)); }, [rows]);
+  useEffect(()=>{
+    try{ localStorage.setItem(STORAGE_KEY_PHOTOS, JSON.stringify(photos)); }
+    catch(err){
+      console.warn('No se pudo guardar fotos:', err);
+      alert('No se pudo guardar la foto (límite del navegador). Probá con una foto más liviana o borrá fotos viejas.');
+    }
+  }, [photos]);
+  useEffect(()=>{ localStorage.setItem(STORAGE_KEY_META, JSON.stringify(meta)); }, [meta]);
+
+  const players = useMemo(()=>computePlayers(rows), [rows]);
+  const selectedHist = selectedPlayer ? players[selectedPlayer] : null;
+
+  function exportBackup(){
+    const payload = {
+      version: 'v1.6.7',
+      exportedAtISO: new Date().toISOString(),
+      data: rows,
+      photos: photos,
+      meta: { ...meta, lastBackupISO: new Date().toISOString() }
+    };
+    downloadText(`monitoreo_fatiga_backup_${dateKey(new Date())}.json`, JSON.stringify(payload,null,2));
+    setMeta(prev=>({ ...prev, lastBackupISO: payload.meta.lastBackupISO }));
+  }
+
+  async function importBackup(file){
+    if(!file) return;
+    try{
+      const txt = await readFileAsText(file);
+      const obj = JSON.parse(txt);
+      if(!obj || !Array.isArray(obj.data)){
+        alert('Backup inválido.');
+        return;
+      }
+      if(!confirm('Esto reemplaza la base local por el backup. ¿Continuar?')) return;
+      setRows(obj.data);
+      setPhotos(obj.photos || {});
+      setMeta(obj.meta || { lastBackupISO: obj.exportedAtISO || null, lastBatchId:null, lastBatchAtISO:null });
+      setSelectedPlayer(null);
+      alert('Backup importado ✅');
+    }catch(e){
+      alert('No se pudo importar el backup.');
+    }
+  }
+
+  function resetAll(){
+    if(!confirm('¿Borrar TODOS los datos locales?')) return;
+    localStorage.removeItem(STORAGE_KEY_DATA);
+    localStorage.removeItem(STORAGE_KEY_PHOTOS);
+    localStorage.removeItem(STORAGE_KEY_META);
+    setRows([]); setPhotos({}); setMeta({lastBackupISO:null, lastBatchId:null, lastBatchAtISO:null}); setSelectedPlayer(null);
+  }
+
+  async function setPlayerPhoto(playerName, dataUrl){
+    const key = norm(playerName);
+    setPhotos(prev=>({ ...prev, [key]: dataUrl }));
+  }
+
+  function printTeamLastLoad(){
+    setPrintMode('team_last');
+    setTimeout(()=>window.print(), 120);
+  }
+  function printPlayer(){
+    if(!selectedPlayer || !selectedHist){
+      alert('Primero abrí un jugador para imprimir el informe individual.');
+      return;
+    }
+    setPrintMode('player');
+    setTimeout(()=>window.print(), 120);
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <header className="px-6 py-4 bg-white border-b border-[var(--borde)] shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <img className="logo" src={CLUB_LOGO} alt="Escudo"/>
+            <div>
+              <div className="text-2xl font-bold accent">
+                Monitoreo de Fatiga <span className="text-xs font-normal text-slate-500">v1.6.7</span>
+              </div>
+              <div className="text-sm text-slate-500">Impresión: última carga • Fuerza con semáforo • Advertencias/Alertas jerárquicas</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 no-print">
+            <button className={tab==='visualizacion' ? 'btn-primary' : 'btn'} onClick={()=>setTab('visualizacion')}>📊 Visualización</button>
+            <button className={tab==='carga' ? 'btn-primary' : 'btn'} onClick={()=>setTab('carga')}>📥 Carga de datos</button>
+
+            <button type="button" className="btn" onClick={exportBackup}>⬇️ Exportar JSON</button>
+            <label className="btn cursor-pointer">
+              ⬆️ Importar JSON
+              <input className="hidden" type="file" accept=".json,application/json" onChange={(e)=>importBackup(e.target.files?.[0] || null)} />
+            </label>
+
+            <button type="button" className="btn" onClick={resetAll}>🗑️ Reiniciar</button>
+          </div>
+        </div>
+      </header>
+
+      {/* PRINT ROOT */}
+      <div id="printRoot">
+        {printMode==='team_last'
+          ? <PrintTeamLastLoad rows={rows} photos={photos} meta={meta} />
+          : <PrintPlayerReport photos={photos} playerName={selectedPlayer} playerHist={selectedHist} />
+        }
+      </div>
+
+      {tab==='carga'
+        ? <CargaDatosTab baseRows={rows} setBaseRows={setRows} setMeta={setMeta} />
+        : <VisualizacionTab
+            rows={rows}
+            photos={photos}
+            meta={meta}
+            onOpenPlayer={(name)=>setSelectedPlayer(name)}
+            onPrintTeamLastLoad={printTeamLastLoad}
+          />
+      }
+
+      {selectedPlayer && selectedHist && (
+        <PlayerModal
+          playerName={selectedPlayer}
+          hist={selectedHist}
+          photoURL={photos[norm(selectedPlayer)]}
+          onPhotoChange={(dataUrl)=>setPlayerPhoto(selectedPlayer, dataUrl)}
+          onClose={()=>setSelectedPlayer(null)}
+          onPrintJugador={printPlayer}
+        />
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ErrorBoundary>
+    <App/>
+  </ErrorBoundary>
+);
+  </script>
+</body>
+</html>
