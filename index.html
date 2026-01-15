@@ -504,7 +504,7 @@ function LineChart({ id, labels, datasets }){
     return ()=> chartRef.current && chartRef.current.destroy();
   }, [id, JSON.stringify(labels), JSON.stringify(datasets)]);
 
-  return <div className="h-56 chart-grid rounded-lg"><canvas ref={canvasRef}></canvas></div>;
+  return <div className="h-56 chart-grid rounded-lg"><canvas ref={canvasRef} id={id}></canvas></div>;
 }
 
 function EditableCell({ value, onChange, placeholder='' }){
