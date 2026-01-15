@@ -325,11 +325,16 @@ function mergeRowsSmart(existing, incoming){
 function parseXlsx(file, cb){
   const reader = new FileReader();
   reader.onload = (e)=>{
-    const data = new Uint8Array(e.target.result);
-    const wb = XLSX.read(data,{type:'array'});
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const json = XLSX.utils.sheet_to_json(ws,{defval:''});
-    cb(json);
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data,{type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws,{defval:''});
+      cb(json);
+    }catch(err){
+      console.error(err);
+      alert('No se pudo leer el Excel. Probá guardarlo como .xlsx y que la primera hoja tenga encabezados.');
+    }
   };
   reader.readAsArrayBuffer(file);
 }
