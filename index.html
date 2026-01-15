@@ -55,28 +55,41 @@
     }
     .badge-dot{ width:8px; height:8px; border-radius:999px; display:inline-block; }
 
-    /* PRINT */
-    #printRoot{ display:none; }
-    @media print{
-      *{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-      body{ background:#fff !important; }
-      header, .no-print{ display:none !important; }
-      #printRoot{ display:block !important; }
-      .print-page{
-        width: 210mm;
-        min-height: 297mm;
-        padding: 10mm;
-        margin: 0 auto;
-        background:#fff;
-      }
-      .print-h2{ font-size: 16px; font-weight: 800; color: var(--azul); }
-      .print-sub{ font-size: 11px; color:#475569; }
-      .print-card{ border:1px solid var(--borde); border-radius: 12px; padding:10px; }
-      table{ page-break-inside:auto; }
-      tr{ page-break-inside:avoid; page-break-after:auto; }
-      .avoid-break{ break-inside: avoid; }
-      canvas{ max-width: 100% !important; }
-    }
+/* PRINT */
+/* En pantalla: existe y tiene tamaño, pero queda fuera de la vista */
+#printRoot{
+  position: fixed;
+  left: -200vw;
+  top: 0;
+  width: 1100px;       /* o 210mm si querés */
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Al imprimir: vuelve al flujo normal y visible */
+@media print{
+  *{ -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body{ background:#fff !important; }
+  header, .no-print{ display:none !important; }
+
+  #printRoot{
+    position: static;
+    left: 0;
+    width: auto;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .print-page{
+    width: 210mm;
+    min-height: 297mm;
+    padding: 10mm;
+    margin: 0 auto;
+    background:#fff;
+  }
+
+  canvas{ max-width: 100% !important; }
+}
   </style>
 </head>
 <body>
