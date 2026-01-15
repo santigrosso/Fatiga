@@ -1562,16 +1562,18 @@ function printPlayer(){
         }
       </div>
 
-      {tab==='carga'
-        ? <CargaDatosTab baseRows={rows} setBaseRows={setRows} setMeta={setMeta} />
-        : <VisualizacionTab
-            rows={rows}
-            photos={photos}
-            meta={meta}
-            onOpenPlayer={(name)=>setSelectedPlayer(name)}
-            onPrintTeamLastLoad={printTeamLastLoad}
-          />
-      }
+<main className="no-print">
+  {tab==='carga'
+    ? <CargaDatosTab baseRows={rows} setBaseRows={setRows} setMeta={setMeta} />
+    : <VisualizacionTab
+        rows={rows}
+        photos={photos}
+        meta={meta}
+        onOpenPlayer={(name)=>setSelectedPlayer(name)}
+        onPrintTeamLastLoad={printTeamLastLoad}
+      />
+  }
+</main>
 
       {selectedPlayer && selectedHist && (
         <PlayerModal
