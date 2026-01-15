@@ -1591,7 +1591,12 @@ function printPlayer(){
       <div id="printRoot">
         {printMode==='team_last'
           ? <PrintTeamLastLoad rows={rows} photos={photos} meta={meta} />
-          : <PrintPlayerReport photos={photos} playerName={selectedPlayer} playerHist={selectedHist} />
+          : <PrintPlayerReport
+    photos={photos}
+    playerName={selectedPlayer}
+    playerHist={selectedHist}
+    shots={printPlayerShots}
+  />
         }
       </div>
 
