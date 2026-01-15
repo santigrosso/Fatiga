@@ -136,9 +136,10 @@ function parseDate(d){
     if(!p || !p.y || !p.m || !p.d) return null;
     return new Date(p.y, p.m - 1, p.d);
   }
-
-  const s = String(d).trim();
-  if(!s) return null;
+  
+const s0 = String(d).trim();
+if(!s0) return null;
+const s = s0.split(' ')[0]; // se queda solo con la fecha, corta la hora
 
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if(iso){
