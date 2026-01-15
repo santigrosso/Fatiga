@@ -78,6 +78,38 @@
     width: auto;
     opacity: 1;
     pointer-events: auto;
+    /* Layout del informe individual: 2 columnas arriba + 1 abajo */
+.print-grid-2{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8mm;
+}
+
+.print-chart{
+  border: 1px solid var(--borde);
+  border-radius: 12px;
+  padding: 6mm;
+}
+
+.print-chart img{
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
+/* Ajustes para que entre en 1 hoja */
+.print-chart img{
+  max-height: 70mm;      /* fuerza / rsi */
+  object-fit: contain;
+}
+
+.print-chart.ck img{
+  max-height: 72mm;      /* CK abajo */
+  object-fit: contain;
+}
+
+/* Evitar cortes raros */
+.print-chart, .print-grid-2{ break-inside: avoid; page-break-inside: avoid; }
   }
 
   .print-page{
