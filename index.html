@@ -1533,11 +1533,29 @@ function printPlayer(){
     alert('Primero abrí un jugador para imprimir el informe individual.');
     return;
   }
+
+  // 1) Buscar los canvas que ya están dibujados en el modal
+  const fCanvas = document.getElementById(`f_${selectedPlayer}`);
+  const rCanvas = document.getElementById(`r_${selectedPlayer}`);
+  const cCanvas = document.getElementById(`c_${selectedPlayer}`);
+
+  // 2) Convertirlos a PNG con fondo blanco (la función que agregaste)
+  const shots = {
+    f: canvasToPngWithWhiteBg(fCanvas),
+    r: canvasToPngWithWhiteBg(rCanvas),
+    c: canvasToPngWithWhiteBg(cCanvas),
+  };
+
+  // 3) Guardar esas imágenes en estado para que PrintPlayerReport las use
+  setPrintPlayerShots(shots);
+
+  // 4) Cambiar el modo de impresión a “player”
   setPrintMode('player');
+
+  // 5) Darle un pelín de tiempo a React para renderizar el printRoot y luego imprimir
   setTimeout(()=>{
-    window.dispatchEvent(new Event('resize'));
     window.print();
-  }, 500);
+  }, 200);
 }
 
   return (
