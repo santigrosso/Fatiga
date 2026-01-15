@@ -1278,39 +1278,43 @@ function PrintPlayerReport({ photos, playerName, playerHist, shots }){
               <WellnessLast3 hist={playerHist}/>
             </div>
 
-            <div className="mt-3">
-              <div className="print-sub"><b>Fuerza Isquios</b></div>
-              <LineChart
-                id={"p_f_"+playerName}
-                labels={playerHist.map(d=>fmtDateShort(d.date))}
-                datasets={[
-                  { label:'Izq', data:playerHist.map(d=>d.FIzq ?? null), borderColor:'#7EC8E3', backgroundColor:'#7EC8E3' },
-                  { label:'Der', data:playerHist.map(d=>d.FDer ?? null), borderColor:'#f97316', backgroundColor:'#f97316' }
-                ]}
-              />
-            </div>
+           <div className="mt-3">
+  <div className="print-sub"><b>Fuerza Isquios</b></div>
+  {shots?.f
+    ? <img
+        src={shots.f}
+        alt="Fuerza"
+        style={{width:'100%', height:'auto', borderRadius:'12px'}}
+      />
+    : <div className="print-sub">
+        Gráfico no disponible (abrí el jugador y volvé a imprimir).
+      </div>
+  }
+</div>
 
-            <div className="mt-3">
-              <div className="print-sub"><b>RSImod</b></div>
-              <LineChart
-                id={"p_r_"+playerName}
-                labels={playerHist.map(d=>fmtDateShort(d.date))}
-                datasets={[
-                  { label:'RSImod', data:playerHist.map(d=>d.RSImod ?? null), borderColor:'#3764E6', backgroundColor:'#3764E6' }
-                ]}
-              />
-            </div>
+           <div className="mt-3">
+  <div className="print-sub"><b>RSImod</b></div>
+  {shots?.r
+    ? <img
+        src={shots.r}
+        alt="RSImod"
+        style={{width:'100%', height:'auto', borderRadius:'12px'}}
+      />
+    : <div className="print-sub">Gráfico no disponible.</div>
+  }
+</div>
 
-            <div className="mt-3">
-              <div className="print-sub"><b>CK</b></div>
-              <LineChart
-                id={"p_c_"+playerName}
-                labels={playerHist.map(d=>fmtDateShort(d.date))}
-                datasets={[
-                  { label:'CK', data:playerHist.map(d=>d.CK ?? null), borderColor:'#001A5A', backgroundColor:'#001A5A' }
-                ]}
-              />
-            </div>
+           <div className="mt-3">
+  <div className="print-sub"><b>CK</b></div>
+  {shots?.c
+    ? <img
+        src={shots.c}
+        alt="CK"
+        style={{width:'100%', height:'auto', borderRadius:'12px'}}
+      />
+    : <div className="print-sub">Gráfico no disponible.</div>
+  }
+</div>
           </>
         )}
       </div>
