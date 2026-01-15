@@ -1505,17 +1505,24 @@ function App(){
   }
 
   function printTeamLastLoad(){
-    setPrintMode('team_last');
-    setTimeout(()=>window.print(), 120);
+  setPrintMode('team_last');
+  setTimeout(()=>{
+    window.dispatchEvent(new Event('resize'));
+    window.print();
+  }, 500);
+}
+
+function printPlayer(){
+  if(!selectedPlayer || !selectedHist){
+    alert('Primero abrí un jugador para imprimir el informe individual.');
+    return;
   }
-  function printPlayer(){
-    if(!selectedPlayer || !selectedHist){
-      alert('Primero abrí un jugador para imprimir el informe individual.');
-      return;
-    }
-    setPrintMode('player');
-    setTimeout(()=>window.print(), 120);
-  }
+  setPrintMode('player');
+  setTimeout(()=>{
+    window.dispatchEvent(new Event('resize'));
+    window.print();
+  }, 500);
+}
 
   return (
     <div className="min-h-screen flex flex-col">
