@@ -690,7 +690,6 @@ function ForceLatestWithPct({ hist }){
   const izqPct = prev ? pctChange(izq, prev.FIzq ?? null) : null;
   const derPct = prev ? pctChange(der, prev.FDer ?? null) : null;
 
-  const fmtPct = (p)=> p==null ? '—' : (p>=0 ? `+${fmt(p,1)}%` : `${fmt(p,1)}%`);
 
   return (
     <div className="grid md:grid-cols-2 gap-2">
