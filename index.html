@@ -1460,6 +1460,7 @@ function App(){
 
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [printMode, setPrintMode] = useState('team_last'); // team_last | player
+  const [printPlayerShots, setPrintPlayerShots] = useState(null);
 
   useEffect(()=>{ localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(rows)); }, [rows]);
   useEffect(()=>{
